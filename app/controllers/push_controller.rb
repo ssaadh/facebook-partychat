@@ -2,34 +2,53 @@ class PushController < ApplicationController
   def latest_thread_messages    
     me = Koala::Facebook::API.new( 'AAAEJYBfN694BAKi3YGolMZBD9roUZAAsnfjJ6n5cSohXsuMSgGF0ZC6TIyES2f3NMp1ukAqVFk19EG82pvDD86fvUpZBVUVZBdO01sWLAxwZDZD' )
     
-    thread_id = 269517366500096
+    # Get all the threads and latest messages at once for account to save time from polling FB API for each thread
+    threads = me.get_object( 'me/inbox' )
     
-    @fb_thread = FbThread.find_by_fb_id( thread_id )
-    
-    last_25_messages = me.get_object( thread_id )[ 'comments' ][ 'data' ]
-    
-    last_25_messages.each do |message_hash|
-      @message_id = message_hash[ 'id' ].sub( /#{thread_id}_/, '' ).to_i
+    @threads = ''
+    threads.each do |single_thread|
       
-      if @fb_thread.last_message_id >= @message_id
+      # Skip the current thread if it isn't the database - meaning it doesn't need pushing
+      @fb_thread_from_database = FbThread.find_by_fb_id( single_thread[ 'id' ] )
+      if @fb_thread_from_database.nil?
         next
       end
       
-      sender = message_hash[ 'from' ][ 'id' ]
-      sender = FbMember.find_by_fb_id( sender )
+      # Only take in the hash part for [recent] messages
+      last_25_messages = single_thread[ 'comments' ][ 'data' ]
+      last_25_messages.each do |message_hash|
+        # Need to have message_id work outside this loop so the final one can update the latest message id column in database
+        @message_id = message_hash[ 'id' ].sub( /#{message_hash[ 'id' ]}_/, '' ).to_i
+        
+        # FB bumps each new message id in a thread up by one.
+        # So if the last message id from database is greater aka happened after the current message id you're looking at, skip it
+        # This could more stable/future-proof if the checking was switched to the timestamp FB provides
+        if @fb_thread_from_database.last_message_id >= @message_id
+          next
+        end
+        
+        # Get who sent the message
+        sender = message_hash[ 'from' ][ 'id' ]
+        sender = FbMember.find_by_fb_id( sender )
+        
+        #sent_time = message_hash[ 'created_time' ].to_time.in_time_zone( 'Eastern Time (US & Canada)' ).strftime( '%I:%M %p' )
+                
+        message = message_hash[ 'message' ]
+                
+        ##
+        # Posting to Partychat or well any url that is a post hook
+        ##        
+        require 'uri'
+        require 'net/http'
+        
+        params = { 'person' => sender.name, 'message' => message }
+        
+        Net::HTTP.post_form( URI.parse( @fb_thread_from_database.post_http_endpoint ), params )
+      end
       
-      sent_time = message_hash[ 'created_time' ].to_time.in_time_zone( 'Eastern Time (US & Canada)' ).strftime( '%I:%M %p' )
+      # Update the database with the last message id that was pushed for the thread
+      @fb_thread_from_database.update_column( 'last_message_id', @message_id )
       
-      message = message_hash[ 'message' ]
-      
-      require 'uri'
-      require 'net/http'
- 
-      params = { 'person' => sender.name, 'message' => message }
-    
-      Net::HTTP.post_form( URI.parse( @fb_thread.post_http_endpoint ), params )      
     end
-    
-    @fb_thread.update_column( 'last_message_id', @message_id )
   end
 end
