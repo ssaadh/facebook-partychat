@@ -11,7 +11,6 @@ group :development do
   gem 'pry-rails'
 end
 
-gem 'pg'
 gem 'thin'
 gem 'newrelic_rpm'
 
@@ -30,6 +29,7 @@ end
 gem 'jquery-rails'
 
 gem 'koala'
+gem 'mechanize'
 
 # To use ActiveModel has_secure_password
 # gem 'bcrypt-ruby', '~> 3.0.0'
