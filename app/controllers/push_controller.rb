@@ -1,6 +1,6 @@
 class PushController < ApplicationController
   def latest_thread_messages    
-    me = Koala::Facebook::API.new( 'AAAEJYBfN694BAKi3YGolMZBD9roUZAAsnfjJ6n5cSohXsuMSgGF0ZC6TIyES2f3NMp1ukAqVFk19EG82pvDD86fvUpZBVUVZBdO01sWLAxwZDZD' )
+    me = Koala::Facebook::API.new( ENV[ 'fb_api' ] )
     
     # Get all the threads and latest messages at once for account to save time from polling FB API for each thread
     threads = me.get_object( 'me/inbox' )

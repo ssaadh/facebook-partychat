@@ -11,7 +11,7 @@
 #
 # It's strongly recommended to check this file into your version control system.
 
-ActiveRecord::Schema.define(:version => 20121014004633) do
+ActiveRecord::Schema.define(:version => 20121017232111) do
 
   create_table "fb_members", :force => true do |t|
     t.integer  "fb_id"
@@ -22,14 +22,15 @@ ActiveRecord::Schema.define(:version => 20121014004633) do
 
   create_table "fb_threads", :force => true do |t|
     t.integer  "fb_id"
-    t.string   "name"
+    t.string   "nickname"
     t.integer  "last_message_id"
-    t.boolean  "ignore"
-    t.datetime "created_at",            :null => false
-    t.datetime "updated_at",            :null => false
     t.datetime "last_message_datetime"
     t.string   "post_http_endpoint"
     t.string   "receive_http_endpoint"
+    t.boolean  "ignore"
+    t.datetime "created_at",            :null => false
+    t.datetime "updated_at",            :null => false
+    t.string   "name"
   end
 
 end
