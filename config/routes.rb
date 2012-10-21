@@ -56,4 +56,6 @@ Afriendlysyncingapp::Application.routes.draw do
   # Note: This route will make all actions in every controller accessible via GET requests.
   # match ':controller(/:action(/:id))(.:format)'
   match 'thread' => 'push#latest_thread_messages'
+  match 'pull' => 'pull#default'
+  match 'api/fb/pull/:thread' => 'pull#receive_hook'
 end
