@@ -1,3 +1,7 @@
+class FbMember < ActiveRecord::Base
+  attr_accessible :fb_id, :name
+end
+
 class FbThread < ActiveRecord::Base
   attr_accessible :fb_id, :last_message_id, :name, :nickname, :ignore, :post_http_endpoint, :receive_http_endpoint
   
