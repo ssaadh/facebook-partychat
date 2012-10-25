@@ -1,0 +1,16 @@
+---
+applications:
+  .:
+    name: afriendlypushapp
+    framework:
+      name: standalone
+      info:
+        mem: 64M
+        description: Standalone Application
+        exec: 
+    runtime: ruby193
+    command: whenever --update-crontab
+    infra: aws
+    url: 
+    mem: 128M
+    instances: 1
