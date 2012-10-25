@@ -2,8 +2,8 @@ require 'sinatra'
 set :protection, except: :ip_spoofing
 
 require 'sinatra/activerecord'
-set :database, 'sqlite3:///db/development.sqlite3'
-require_relative 'models.rb'
+require_relative 'config/environments'
+require_relative 'models'
 
 helpers do
   def login_and_save_cookie( page )

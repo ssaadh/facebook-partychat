@@ -1,12 +1,12 @@
 source :rubygems
 
-group :development do
+group :development, :test do
   gem 'sqlite3', '~> 1.3.6'
   gem 'pry', '~> 0.9.10'
 end
 
 group :production do
-  gem 'mysql2', '~> 0.3.11'
+  gem 'pg'
 end
 
 # server stuff
