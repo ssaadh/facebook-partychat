@@ -89,7 +89,7 @@ get '/api/fb/push/threads' do
     last_25_messages = single_thread[ 'comments' ][ 'data' ]
     last_25_messages.each do |message_hash|
       # Need to have message_id work outside this loop so the final one can update the latest message id column in database
-      @message_id = message_hash[ 'id' ].sub( /#{message_hash[ 'id' ]}_/, '' ).to_i
+      @message_id = message_hash[ 'id' ].sub( /#{@fb_thread_from_database.fb_id}_/, '' ).to_i
         
       # FB bumps each new message id in a thread up by one.
       # So if the last message id from database is greater aka happened after the current message id you're looking at, skip it
@@ -97,13 +97,16 @@ get '/api/fb/push/threads' do
       if @fb_thread_from_database.last_message_id >= @message_id
         next
       end
-        
+      
       # Get who sent the message
       sender = message_hash[ 'from' ][ 'id' ]
+      
+      # @TODO Currently a hardcoded hack, should somehow automatically skip if a bot is the sender
       sender = FbMember.find_by_fb_id( sender )
-        
-      #sent_time = message_hash[ 'created_time' ].to_time.in_time_zone( 'Eastern Time (US & Canada)' ).strftime( '%I:%M %p' )
-                
+      if sender.is_bot.to_i == 1
+        next
+      end
+      
       message = message_hash[ 'message' ]
                 
       ##
