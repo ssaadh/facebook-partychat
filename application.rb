@@ -131,5 +131,5 @@ end
 
 # Eh
 get '/' do
-  'Nup.'
+  'Nup'
 end
