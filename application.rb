@@ -75,8 +75,7 @@ get '/api/fb/push/threads' do
     
   # Get all the threads and latest messages at once for account to save time from polling FB API for each thread
   threads = me.get_object( 'me/inbox' )
-    
-  @threads = ''
+  
   threads.each do |single_thread|
       
     # Skip the current thread if it isn't the database - meaning it doesn't need pushing
@@ -84,49 +83,56 @@ get '/api/fb/push/threads' do
     if @fb_thread_from_database.nil?
       next
     end
-      
+    
     # Only take in the hash part for [recent] messages
+    current_message_id = 0
     last_25_messages = single_thread[ 'comments' ][ 'data' ]
     last_25_messages.each do |message_hash|
       # Need to have message_id work outside this loop so the final one can update the latest message id column in database
-      @message_id = message_hash[ 'id' ].sub( /#{@fb_thread_from_database.fb_id}_/, '' ).to_i
-        
+      # All the numbers before the underscore are just the thread id the message is in
+      current_message_id = message_hash[ 'id' ].sub( /^\d+_/, '' ).to_i
+      
       # FB bumps each new message id in a thread up by one.
       # So if the last message id from database is greater aka happened after the current message id you're looking at, skip it
       # This could more stable/future-proof if the checking was switched to the timestamp FB provides
-      if @fb_thread_from_database.last_message_id >= @message_id
+      if @fb_thread_from_database.last_message_id >= current_message_id
         next
       end
       
       # Get who sent the message
-      sender = message_hash[ 'from' ][ 'id' ]
-      
-      # @TODO Currently a hardcoded hack, should somehow automatically skip if a bot is the sender
+      sender = message_hash[ 'from' ][ 'id' ]      
       sender = FbMember.find_by_fb_id( sender )
-      if sender.is_bot.to_i == 1
+      
+      if sender.is_bot == true
         next
       end
       
       message = message_hash[ 'message' ]
-                
-      ##
-      # Posting to Partychat or well any url that is a post hook
-      ##        
-      require 'uri'
-      require 'net/http'
-        
-      params = { 'person' => sender.name, 'message' => message }
-        
-      Net::HTTP.post_form( URI.parse( @fb_thread_from_database.post_http_endpoint ), params )
+      
+      message_from_facebook_to_partychat( @fb_thread_from_database.post_http_endpoint, sender.name, message )
     end
       
     # Update the database with the last message id that was pushed for the thread
-    if @message_id != @fb_thread_from_database.last_message_id      
-      @fb_thread_from_database.update_column( 'last_message_id', @message_id )
+    if current_message_id != @fb_thread_from_database.last_message_id
+      @fb_thread_from_database.update_column( 'last_message_id', current_message_id )
     end
     "Done with #{@fb_thread_from_database.nickname}"
   end
   "Done"
+end
+
+helpers do
+  def message_from_facebook_to_partychat( http_endpoint, sender, message )
+    ##
+    # Posting to Partychat or well any url that is a post hook
+    ##        
+    require 'uri'
+    require 'net/http'
+        
+    params = { 'person' => sender, 'message' => message }
+        
+    Net::HTTP.post_form( URI.parse( http_endpoint ), params )
+  end
 end
 
 # Eh

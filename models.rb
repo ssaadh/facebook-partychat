@@ -1,5 +1,5 @@
 class FbMember < ActiveRecord::Base
-  attr_accessible :fb_id, :name
+  attr_accessible :fb_id, :name, :google_talk_name, :is_bot
 end
 
 class FbThread < ActiveRecord::Base
@@ -8,4 +8,8 @@ class FbThread < ActiveRecord::Base
   def self.find_with_receive_endpoint( url_parameter )
     self.find_by_nickname( url_parameter.titleize )    
   end
+end
+
+class FbMessage
+  
 end

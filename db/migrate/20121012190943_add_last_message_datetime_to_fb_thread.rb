@@ -1,4 +1,4 @@
-class AddLastMessageDateimeToFbThread < ActiveRecord::Migration
+class AddLastMessageDatetimeToFbThread < ActiveRecord::Migration
   def change
     add_column :fb_threads, :last_message_datetime, :datetime
   end
