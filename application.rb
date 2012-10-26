@@ -63,8 +63,14 @@ post '/api/fb/pull/:thread' do
   if thread_object.nil?
     return
   end
+  
   thread_id = thread_object.fb_id
-  individual_thread_url = "https://m.facebook.com/messages/read?action=read&tid=id.#{thread_id}"  
+  
+  # @TODO This is shameful, lol. One of the threads has different api and actual url ids. But current database table only supports one id number. So this is a quick hack for fixing the one thread that has a problem. This definitely needs to be changed by having a second column for the id and be for all columns instead of a hack for one
+  if thread_object.id == 5
+    thread_id = ENV[ 'fb_thread_id' ]
+  end
+  individual_thread_url = "https://m.facebook.com/messages/read?action=read&tid=id.#{thread_id}"
   individual_thread = @agent.get( individual_thread_url )
   
   # Post to the message text area on specific thread page
