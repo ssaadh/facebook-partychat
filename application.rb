@@ -7,15 +7,19 @@ require_relative 'models'
 
 helpers do
   def login_and_save_cookie( page )
+    cookie_location = './tmp/fb_cookie.yml'
+    
     login_form = page.form_with( :id => 'login_form' )
     
     #@TODO dont have email/password publicly here
-    require "#{File.dirname( __FILE__ )}/fb_auth.rb"
     login_form[ 'email' ] = ENV[ 'fb_user' ]
     login_form[ 'pass' ] = ENV[ 'fb_pass' ]
     page = login_form.submit# 'login'
     #@TODO test to make sure page logged in
-    @agent.cookie_jar.save_as( './tmp/fb_cookie.yml' )
+    if File.exist? cookie_location
+      File.delete cookie_location
+    end
+    @agent.cookie_jar.save_as( cookie_location )
     return page
   end
 end
