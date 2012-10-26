@@ -20,5 +20,5 @@
 # Learn more: http://github.com/javan/whenever
 
 every 1.minute do
-  command 'curl http://afriendlysyncapp.aws.af.cm'
+  command 'curl http://afriendlysyncapp.herokuapp.com/api/fb/push/threads'
 end
