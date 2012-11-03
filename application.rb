@@ -83,19 +83,20 @@ get '/api/fb/push/threads' do
   require 'koala'
   me = Koala::Facebook::API.new( ENV[ 'fb_api' ] )
     
+  total_sent_messages_count = 0
   # Get all the threads and latest messages at once for account to save time from polling FB API for each thread
-  threads = me.get_object( 'me/inbox' )
-  
+  threads = me.get_object( "me/inbox?&since=#{Time.now.to_i - 500}" )
   threads.each do |single_thread|
-      
     # Skip the current thread if it isn't the database - meaning it doesn't need pushing
     @fb_thread_from_database = FbThread.find_by_fb_id( single_thread[ 'id' ] )
     if @fb_thread_from_database.nil?
       next
     end
-    
+        
+    thread_sent_messages_count = 0
+    # Initializing
+    current_message_id = 0    
     # Only take in the hash part for [recent] messages
-    current_message_id = 0
     last_25_messages = single_thread[ 'comments' ][ 'data' ]
     last_25_messages.each do |message_hash|
       # Need to have message_id work outside this loop so the final one can update the latest message id column in database
@@ -120,15 +121,17 @@ get '/api/fb/push/threads' do
       message = message_hash[ 'message' ]
       
       message_from_facebook_to_partychat( @fb_thread_from_database.post_http_endpoint, sender.name, message )
+      thread_sent_messages_count += 1
     end
       
     # Update the database with the last message id that was pushed for the thread
     if current_message_id != @fb_thread_from_database.last_message_id
       @fb_thread_from_database.update_column( 'last_message_id', current_message_id )
     end
-    "Done with #{@fb_thread_from_database.nickname}"
+    "Done with #{@fb_thread_from_database.nickname} and sent #{thread_sent_messages_count} messages"
+    total_sent_messages_count += thread_sent_messages_count
   end
-  "Done"
+  "Sent #{total_sent_messages_count} messages"
 end
 
 helpers do
