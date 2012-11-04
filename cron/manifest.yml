@@ -9,7 +9,7 @@ applications:
         description: Standalone Application
         exec: 
     runtime: ruby193
-    command: whenever --update-crontab
+    command: ruby schedule.rb
     infra: aws
     url: 
     mem: 128M
