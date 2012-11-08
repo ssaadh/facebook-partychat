@@ -14,10 +14,15 @@ helpers do
     login_form[ 'email' ] = ENV[ 'fb_user' ]
     login_form[ 'pass' ] = ENV[ 'fb_pass' ]
     page = login_form.submit# 'login'
-    if File.exist? cookie_location
-      File.delete cookie_location
-    end
+    
+    # Not sure how to get Mechanize to directly give cookie information
+    # Instead saving the cookie information to file, and dumping that file's content into db
     @agent.cookie_jar.save_as( cookie_location )
+    fb_cookie = IO.read cookie_location
+        
+    bot_object = FbMember.find_by_fb_user ENV[ 'fb_user']
+    bot_object.update_column( 'fb_cookie', fb_cookie )
+    
     return page
   end
 end
@@ -37,10 +42,16 @@ post '/api/fb/pull/:thread' do
     
   require 'mechanize'
   @agent = Mechanize.new
-    
+  
+  # Not sure how to have Mechanize just take in cookie information from string without this implementation
+  # Pulling Mechanize's cookie info from db, dumping it into a file, and then loading said file into Mechanize
   cookie_location = './tmp/fb_cookie.yml'
-  if File.exist? cookie_location
-    @agent.cookie_jar.load( './tmp/fb_cookie.yml' )
+  fb_cookie = FbMember.find_by_fb_user( ENV[ 'fb_user'] ).fb_cookie  
+  if !fb_cookie.nil? && !fb_cookie.empty?
+    File.open( cookie_location, 'w' ) do | file |
+      file.puts fb_cookie
+    end
+    @agent.cookie_jar.load( cookie_location )
   end
   
   facebook_site = @agent.get( 'http://m.facebook.com/messages' )
