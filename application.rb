@@ -84,7 +84,7 @@ get '/api/4sq/push/checkins' do
   client = Foursquare2::Client.new(:oauth_token => ENV[ 'foursquare_oauth' ] )
   
   # Hardcoded which FB thread to post to
-  fb_thread = FbThread.find 5
+  fb_thread = FbThread.find ENV[ 'foursquare_push_thread_id' ]
   fb_thread_id = fb_thread.fb_url_id
   
   recent = client.recent_checkins
