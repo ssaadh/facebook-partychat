@@ -43,11 +43,11 @@ get '/api/fb/push/threads' do
     last_25_messages = single_thread[ 'comments' ][ 'data' ]
     last_25_messages.each do |message_hash|      
       # All the numbers before the underscore are just the thread id the message is in
-      current_message_id = message_hash[ 'id' ].sub( /^\d+_/, '' ).to_i
+      current_message_id = message_hash[ 'id' ].sub( /^\d+_/, '' )
       
       # FB bumps each new message id in a thread up by one.
       # If last message id from db is greater (happened after the current message you're looking at), skip it
-      if @fb_thread_from_database.last_message_id >= current_message_id
+      if @fb_thread_from_database.last_message_id.to_i >= current_message_id.to_i
         next
       end
       
@@ -91,11 +91,11 @@ get '/api/4sq/push/checkins' do
   
   # In-efficient, keeps looping even after finding correct stuff in second inner loop
   FoursquareMember.all.each do |foursquare_member|
-    latest_foursquare_checkin_id = ''
+    latest_foursquare_checkin_id = '1'
     recent.each do |individual|
       
       # Check to see if matching database person and current iteration of api checkin person
-      if foursquare_member.foursquare_id != individual[ 'user' ][ 'id' ].to_i
+      if foursquare_member.foursquare_id != individual[ 'user' ][ 'id' ]
         next
       end
       
