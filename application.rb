@@ -46,7 +46,7 @@ post '/api/fb/pull/:thread' do
   # Not sure how to have Mechanize just take in cookie information from string without this implementation
   # Pulling Mechanize's cookie info from db, dumping it into a file, and then loading said file into Mechanize
   cookie_location = './tmp/fb_cookie.yml'
-  fb_cookie = FbMember.find_by_fb_user( ENV[ 'fb_user'] ).fb_cookie  
+  fb_cookie = FbMember.find_by_fb_user( ENV[ 'fb_user'] ).fb_cookie
   if !fb_cookie.nil? && !fb_cookie.empty?
     File.open( cookie_location, 'w' ) do | file |
       file.puts fb_cookie
@@ -153,6 +153,117 @@ helpers do
         
     Net::HTTP.post_form( URI.parse( http_endpoint ), params )
   end
+end
+
+get '/api/4sq/push/checkins' do
+  require 'bitly'
+  Bitly.use_api_version_3
+  bitly = Bitly.new( ENV[ 'bitly_username' ], ENV[ 'bitly_api_key' ] )
+  
+  require 'foursquare2'
+  client = Foursquare2::Client.new(:oauth_token => ENV[ 'foursquare_oauth' ] )
+  
+  # Hardcoded which FB thread to post to
+  fb_thread = FbThread.find 5
+  
+  recent = client.recent_checkins
+  
+  # In-efficient, keeps looping even after finding correct stuff in second inner loop
+  FoursquareMember.all.each do |foursquare_member|
+    latest_foursquare_checkin_id = ''
+    recent.each do |individual|
+      
+      # Check to see if matching database person and current iteration of api checkin person
+      if foursquare_member.foursquare_id != individual[ 'user' ][ 'id' ].to_i
+        next
+      end
+      
+      # Now we know we have the correct person from database and api so any further situations where
+      # we won't be pushing to Facebook or after we are done pushing can kill the loop and move to next person in db
+      
+      # Check if already pushed their most recent checkin. If so no need to continue, on to next person
+      latest_foursquare_checkin_id = individual[ 'id' ]
+      if foursquare_member.last_checkin_id == latest_foursquare_checkin_id
+        break
+      end
+      
+      location_name = individual[ 'venue' ][ 'name' ]
+      send_to_facebook_content = "@Foursquare: #{foursquare_member.fb_member.name} checked into #{location_name}."
+      
+      # If there is no shout and checkin is blacklisted, skip pushing
+      # However if there is a shout, push the checkin even if blacklisted
+      
+      # Check for shout/comment
+      shout = individual[ 'shout' ]
+      if shout.nil? || shout.empty?
+        
+        # Check to see if checkin location is blacklisted and push should be skipped
+        venue_id = individual[ 'venue' ][ 'id' ]
+        venue_find = FoursquareLocationBlacklist.find( :first, :conditions => [ 'foursquare_member_id = ? and location_id = ?', foursquare_member.id, venue_id ] )
+        if !venue_find.nil?
+          break
+        end
+        
+      else
+        send_to_facebook_content << " [S]he shouted, \"#{shout}\"."
+      end
+      
+      single_checkin = client.checkin( latest_foursquare_checkin_id )
+      send_to_facebook_content << " Points begotten: #{single_checkin[ 'score' ][ 'total' ]}."
+      
+      url_for_checkin = "https://foursquare.com/user/#{foursquare_member.foursquare_id}/checkin/#{latest_foursquare_checkin_id}"
+      bitly_url_object = bitly.shorten( url_for_checkin )
+      send_to_facebook_content << " #{bitly_url_object.short_url}"
+            
+      
+      # COPY PASTE FROM ABOVE
+      # COPY PASTE FROM ABOVE
+      
+      require 'mechanize'
+      @agent = Mechanize.new
+      
+      # Not sure how to have Mechanize just take in cookie information from string without this implementation
+      # Pulling Mechanize's cookie info from db, dumping it into a file, and then loading said file into Mechanize
+      cookie_location = './tmp/fb_cookie.yml'
+      fb_cookie = FbMember.find_by_fb_user( ENV[ 'fb_user'] ).fb_cookie
+      if !fb_cookie.nil? && !fb_cookie.empty?
+        File.open( cookie_location, 'w' ) do | file |
+          file.puts fb_cookie
+        end
+        @agent.cookie_jar.load( cookie_location )
+      end
+      
+      facebook_site = @agent.get( 'http://m.facebook.com/messages' )
+      
+      # Check to see if url has redirected to login page. If so, then it means not logged in.
+      current_url = facebook_site.uri.to_s
+      current_path = URI.parse( current_url ).path  
+      # If cookie doesn't have you signed in, manually log in and get fresh cookie
+      if !current_path.include? 'messages'
+        facebook_site = login_and_save_cookie( facebook_site )
+      end
+      
+      thread_id = fb_thread.fb_id
+      if fb_thread.id == 5
+        thread_id = ENV[ 'fb_thread_id' ]
+      end
+      individual_thread_url = "https://m.facebook.com/messages/read?action=read&tid=id.#{thread_id}"
+      individual_thread = @agent.get( individual_thread_url )
+      
+      # Post to the message text area on specific thread page
+      reply_form = individual_thread.form_with( :id => 'composer_form' )
+      reply_form[ 'body' ] = send_to_facebook_content
+      reply_form.submit
+      
+      break
+    end
+    
+    # Update the database with the latest checkin id if new
+    if foursquare_member.last_checkin_id != latest_foursquare_checkin_id
+      foursquare_member.update_column( 'last_checkin_id', latest_foursquare_checkin_id )
+    end
+  end
+  'Done'
 end
 
 # Eh

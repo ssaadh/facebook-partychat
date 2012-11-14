@@ -24,3 +24,5 @@ gem 'sinatra-activerecord', '~> 1.1.1'
 # domain-specific
 gem 'koala', '~> 1.5.0'
 gem 'mechanize', '~> 2.5.1'
+gem 'foursquare2'
+gem 'bitly'

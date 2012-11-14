@@ -1,5 +1,7 @@
 class FbMember < ActiveRecord::Base
   attr_accessible :fb_id, :name, :google_talk_name, :is_bot
+  
+  has_one :foursquare_member
 end
 
 class FbThread < ActiveRecord::Base
@@ -11,5 +13,14 @@ class FbThread < ActiveRecord::Base
 end
 
 class FbMessage
+end
+
+class FoursquareMember < ActiveRecord::Base
+  attr_accessible :fb_member_id, :foursquare_id, :last_checkin_id
   
+  belongs_to :fb_member
+end
+
+class FoursquareLocationBlacklist < ActiveRecord::Base
+  attr_accessible :foursquare_member_id, :location_id
 end
