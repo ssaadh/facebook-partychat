@@ -5,28 +5,6 @@ require 'sinatra/activerecord'
 require_relative 'config/environments'
 require_relative 'models'
 
-helpers do
-  def login_and_save_cookie( page )
-    cookie_location = './tmp/fb_cookie.yml'
-    
-    login_form = page.form_with( :id => 'login_form' )
-    
-    login_form[ 'email' ] = ENV[ 'fb_user' ]
-    login_form[ 'pass' ] = ENV[ 'fb_pass' ]
-    page = login_form.submit# 'login'
-    
-    # Not sure how to get Mechanize to directly give cookie information
-    # Instead saving the cookie information to file, and dumping that file's content into db
-    @agent.cookie_jar.save_as( cookie_location )
-    fb_cookie = IO.read cookie_location
-        
-    bot_object = FbMember.find_by_fb_user ENV[ 'fb_user']
-    bot_object.update_column( 'fb_cookie', fb_cookie )
-    
-    return page
-  end
-end
-
 post '/api/fb/pull/:thread' do
   thread_nickname = params[ :thread ]
   
@@ -38,52 +16,12 @@ post '/api/fb/pull/:thread' do
   sender_object = FbMember.find_by_google_talk_name( instant_message_extraction[ :from ] )
   send_to_facebook_content = "*#{sender_object.name}:* #{instant_message_extraction[ :body ]}"
   
-  # Posting to Facebook
-    
-  require 'mechanize'
-  @agent = Mechanize.new
-  
-  # Not sure how to have Mechanize just take in cookie information from string without this implementation
-  # Pulling Mechanize's cookie info from db, dumping it into a file, and then loading said file into Mechanize
-  cookie_location = './tmp/fb_cookie.yml'
-  fb_cookie = FbMember.find_by_fb_user( ENV[ 'fb_user'] ).fb_cookie
-  if !fb_cookie.nil? && !fb_cookie.empty?
-    File.open( cookie_location, 'w' ) do | file |
-      file.puts fb_cookie
-    end
-    @agent.cookie_jar.load( cookie_location )
-  end
-  
-  facebook_site = @agent.get( 'http://m.facebook.com/messages' )
-  
-  # Check to see if url has redirected to login page. If so, then it means not logged in.
-  current_url = facebook_site.uri.to_s
-  current_path = URI.parse( current_url ).path  
-  # If cookie doesn't have you signed in, manually log in and get fresh cookie
-  if !current_path.include? 'messages'
-    facebook_site = login_and_save_cookie( facebook_site )
-  end
-  
   # Find the thread name parameter from url in database and go to the thread
   thread_object = FbThread.find_with_receive_endpoint( thread_nickname )
-  if thread_object.nil?
-    return
-  end
+  return if thread_object.nil?
+  thread_id = thread_object.fb_url_id
   
-  thread_id = thread_object.fb_id
-  
-  # One thread has different api and actual url id. Current db supports one id. Currently hard coded hack.
-  # Should have two columns in table, one for api and another for url id
-  if thread_object.id == 5
-    thread_id = ENV[ 'fb_thread_id' ]
-  end
-  individual_thread_url = "https://m.facebook.com/messages/read?action=read&tid=id.#{thread_id}"
-  individual_thread = @agent.get( individual_thread_url )
-  
-  # Post to the message text area on specific thread page
-  reply_form = individual_thread.form_with( :id => 'composer_form' )
-  reply_form[ 'body' ] = send_to_facebook_content
-  reply_form.submit
+  post_message_to_facebook_thread( send_to_facebook_content, thread_id )
 end
 
 get '/api/fb/push/threads' do
@@ -95,24 +33,20 @@ get '/api/fb/push/threads' do
   threads = me.get_object( "me/inbox?&since=#{Time.now.to_i - 500}" )
   threads.each do |single_thread|
     # Skip the current thread if it isn't the database - meaning it doesn't need pushing
-    @fb_thread_from_database = FbThread.find_by_fb_id( single_thread[ 'id' ] )
-    if @fb_thread_from_database.nil?
-      next
-    end
+    @fb_thread_from_database = FbThread.find_by_fb_api_id( single_thread[ 'id' ] )
+    next if @fb_thread_from_database.nil?
         
     thread_sent_messages_count = 0
-    # Initializing
+    # Needs to work outside the loop below so the final one can update the latest message id column in database
     current_message_id = 0    
     # Only take in the hash part for [recent] messages
     last_25_messages = single_thread[ 'comments' ][ 'data' ]
-    last_25_messages.each do |message_hash|
-      # Need to have message_id work outside this loop so the final one can update the latest message id column in database
+    last_25_messages.each do |message_hash|      
       # All the numbers before the underscore are just the thread id the message is in
       current_message_id = message_hash[ 'id' ].sub( /^\d+_/, '' ).to_i
       
       # FB bumps each new message id in a thread up by one.
-      # So if the last message id from database is greater aka happened after the current message id you're looking at, skip it
-      # This could more stable/future-proof if the checking was switched to the timestamp FB provides
+      # If last message id from db is greater (happened after the current message you're looking at), skip it
       if @fb_thread_from_database.last_message_id >= current_message_id
         next
       end
@@ -141,20 +75,6 @@ get '/api/fb/push/threads' do
   "Sent #{total_sent_messages_count} messages"
 end
 
-helpers do
-  def message_from_facebook_to_partychat( http_endpoint, sender, message )
-    ##
-    # Posting to Partychat or well any url that is a post hook
-    ##        
-    require 'uri'
-    require 'net/http'
-        
-    params = { 'person' => sender, 'message' => message }
-        
-    Net::HTTP.post_form( URI.parse( http_endpoint ), params )
-  end
-end
-
 get '/api/4sq/push/checkins' do
   require 'bitly'
   Bitly.use_api_version_3
@@ -165,6 +85,7 @@ get '/api/4sq/push/checkins' do
   
   # Hardcoded which FB thread to post to
   fb_thread = FbThread.find 5
+  fb_thread_id = fb_thread.fb_url_id
   
   recent = client.recent_checkins
   
@@ -215,46 +136,7 @@ get '/api/4sq/push/checkins' do
       bitly_url_object = bitly.shorten( url_for_checkin )
       send_to_facebook_content << " #{bitly_url_object.short_url}"
             
-      
-      # COPY PASTE FROM ABOVE
-      # COPY PASTE FROM ABOVE
-      
-      require 'mechanize'
-      @agent = Mechanize.new
-      
-      # Not sure how to have Mechanize just take in cookie information from string without this implementation
-      # Pulling Mechanize's cookie info from db, dumping it into a file, and then loading said file into Mechanize
-      cookie_location = './tmp/fb_cookie.yml'
-      fb_cookie = FbMember.find_by_fb_user( ENV[ 'fb_user'] ).fb_cookie
-      if !fb_cookie.nil? && !fb_cookie.empty?
-        File.open( cookie_location, 'w' ) do | file |
-          file.puts fb_cookie
-        end
-        @agent.cookie_jar.load( cookie_location )
-      end
-      
-      facebook_site = @agent.get( 'http://m.facebook.com/messages' )
-      
-      # Check to see if url has redirected to login page. If so, then it means not logged in.
-      current_url = facebook_site.uri.to_s
-      current_path = URI.parse( current_url ).path  
-      # If cookie doesn't have you signed in, manually log in and get fresh cookie
-      if !current_path.include? 'messages'
-        facebook_site = login_and_save_cookie( facebook_site )
-      end
-      
-      thread_id = fb_thread.fb_id
-      if fb_thread.id == 5
-        thread_id = ENV[ 'fb_thread_id' ]
-      end
-      individual_thread_url = "https://m.facebook.com/messages/read?action=read&tid=id.#{thread_id}"
-      individual_thread = @agent.get( individual_thread_url )
-      
-      # Post to the message text area on specific thread page
-      reply_form = individual_thread.form_with( :id => 'composer_form' )
-      reply_form[ 'body' ] = send_to_facebook_content
-      reply_form.submit
-      
+      post_message_to_facebook_thread( send_to_facebook_content, fb_thread_id )
       break
     end
     
@@ -266,7 +148,79 @@ get '/api/4sq/push/checkins' do
   'Done'
 end
 
+
 # Eh
 get '/' do
   'Nup'
+end
+
+
+helpers do
+  def login_and_save_cookie( page )
+    cookie_location = './tmp/fb_cookie.yml'
+    
+    login_form = page.form_with( :id => 'login_form' )
+    
+    login_form[ 'email' ] = ENV[ 'fb_user' ]
+    login_form[ 'pass' ] = ENV[ 'fb_pass' ]
+    page = login_form.submit# 'login'
+    
+    # Not sure how to get Mechanize to directly give cookie information
+    # Instead saving the cookie information to file, and dumping that file's content into db
+    @agent.cookie_jar.save_as( cookie_location )
+    fb_cookie = IO.read cookie_location
+        
+    bot_object = FbMember.find_by_fb_user ENV[ 'fb_user']
+    bot_object.update_column( 'fb_cookie', fb_cookie )
+    
+    return page
+  end
+  
+  def message_from_facebook_to_partychat( http_endpoint, sender, message )
+    ##
+    # Posting to Partychat or well any url that is a post hook
+    ##        
+    require 'uri'
+    require 'net/http'
+        
+    params = { 'person' => sender, 'message' => message }
+        
+    Net::HTTP.post_form( URI.parse( http_endpoint ), params )
+  end
+  
+  def post_message_to_facebook_thread( send_to_facebook_content, thread_id )
+    require 'mechanize'
+    @agent = Mechanize.new
+  
+    # Not sure how to have Mechanize just take in cookie information from string without this implementation
+    # Pulling Mechanize's cookie info from db, dumping it into a file, and then loading said file into Mechanize
+    cookie_location = './tmp/fb_cookie.yml'
+    fb_cookie = FbMember.find_by_fb_user( ENV[ 'fb_user'] ).fb_cookie
+    if !fb_cookie.nil? && !fb_cookie.empty?
+      File.open( cookie_location, 'w' ) do | file |
+        file.puts fb_cookie
+      end
+      @agent.cookie_jar.load( cookie_location )
+    end
+  
+    facebook_site = @agent.get( 'http://m.facebook.com/messages' )
+  
+    # Check to see if url has redirected to login page. If so, then it means not logged in.
+    current_url = facebook_site.uri.to_s
+    current_path = URI.parse( current_url ).path  
+    # If cookie doesn't have you signed in, manually log in and get fresh cookie
+    if !current_path.include? 'messages'
+      facebook_site = login_and_save_cookie( facebook_site )
+    end
+        
+    individual_thread_url = "https://m.facebook.com/messages/read?action=read&tid=id.#{thread_id}"
+    individual_thread = @agent.get( individual_thread_url )
+  
+    # Post to the message text area on specific thread page
+    reply_form = individual_thread.form_with( :id => 'composer_form' )
+    reply_form[ 'body' ] = send_to_facebook_content
+    reply_form.submit
+    
+    return individual_thread
+  end
 end
