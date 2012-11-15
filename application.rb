@@ -76,10 +76,6 @@ get '/api/fb/push/threads' do
 end
 
 get '/api/4sq/push/checkins' do
-  require 'bitly'
-  Bitly.use_api_version_3
-  bitly = Bitly.new( ENV[ 'bitly_username' ], ENV[ 'bitly_api_key' ] )
-  
   require 'foursquare2'
   client = Foursquare2::Client.new(:oauth_token => ENV[ 'foursquare_oauth' ] )
   
@@ -130,11 +126,7 @@ get '/api/4sq/push/checkins' do
       end
       
       single_checkin = client.checkin( latest_foursquare_checkin_id )
-      send_to_facebook_content << " Points begotten: #{single_checkin[ 'score' ][ 'total' ]}."
-      
-      url_for_checkin = "https://foursquare.com/user/#{foursquare_member.foursquare_id}/checkin/#{latest_foursquare_checkin_id}"
-      bitly_url_object = bitly.shorten( url_for_checkin )
-      send_to_facebook_content << " #{bitly_url_object.short_url}"
+      send_to_facebook_content << " Points: +#{single_checkin[ 'score' ][ 'total' ]}."
             
       post_message_to_facebook_thread( send_to_facebook_content, fb_thread_id )
       break
