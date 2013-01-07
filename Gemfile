@@ -27,3 +27,4 @@ gem 'mechanize'#, '~> 2.5.1'
 gem 'foursquare2'
 gem 'bitly'
 
+gem 'jaconda'

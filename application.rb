@@ -24,13 +24,48 @@ post '/api/fb/pull/:thread' do
   post_message_to_facebook_thread( send_to_facebook_content, thread_id )
 end
 
-get '/api/fb/push/threads' do
+get '/api/jim/push/fb/:thread' do
+  thread_nickname = params[ :thread ]
+  @fb_thread_from_database = FbThread.find_by_nickname( thread_nickname )  
+  thread_api_key = @fb_thread_from_database.chat_room_api_key
+  
+  require 'jaconda'  
+  Jaconda::API.authenticate( :subdomain => thread_nickname,
+                            :token => thread_api_key )
+  room = Jaconda::API::Room.find thread_nickname
+  
+  current_message_id = 0
+  room.messages.each do |message|
+    current_message_id = message.id
+    
+    if message.kind != 'chat'
+      next
+    end
+    
+    if @fb_thread_from_database.last_chat_room_message_id.to_i >= current_message_id
+      next
+    end
+    
+    body = message.text    
+    #@TODO should match chat user id with fb user and then try to post message as that fb user before falling back to a fb bot
+    thread_id = @fb_thread_from_database.fb_url_id
+    
+    post_message_to_facebook_thread( "*#{body}", thread_id )
+  end
+  
+  if current_message_id != @fb_thread_from_database.last_chat_room_message_id
+    @fb_thread_from_database.update_column( 'last_chat_room_message_id', current_message_id )
+  end  
+end
+
+
+get '/api/fb/push/partychat/threads' do
   require 'koala'
   me = Koala::Facebook::API.new( ENV[ 'fb_api' ] )
     
   total_sent_messages_count = 0
   # Get all the threads and latest messages at once for account to save time from polling FB API for each thread
-  threads = me.get_object( "me/inbox?&since=#{Time.now.to_i - 500}" )
+  threads = me.get_object( "me/inbox?&since=#{Time.now.to_i - 1000}" )
   threads.each do |single_thread|
     # Skip the current thread if it isn't the database - meaning it doesn't need pushing
     @fb_thread_from_database = FbThread.find_by_fb_api_id( single_thread[ 'id' ] )
@@ -74,6 +109,62 @@ get '/api/fb/push/threads' do
   end
   "Sent #{total_sent_messages_count} messages"
 end
+
+get '/api/fb/push/jim/threads' do
+  require 'koala'
+  me = Koala::Facebook::API.new( ENV[ 'fb_api' ] )
+  
+  total_sent_messages_count = 0
+  # Get all the threads and latest messages at once for account to save time from polling FB API for each thread
+  recent_time = Time.now.to_i - 1000
+  recent_time = recent_time.to_s
+  threads = me.get_object( "me/inbox?&since=#{recent_time}" )
+
+  threads.each do |single_thread|
+    # Skip the current thread if it isn't the database - meaning it doesn't need pushing
+    @fb_thread_from_database = FbThread.find_by_fb_api_id( single_thread[ 'id' ] )
+    next if @fb_thread_from_database.nil?
+    #next if @fb_thread_from_database.ignore == true
+     
+    thread_sent_messages_count = 0
+    # Needs to work outside the loop below so the final one can update the latest message id column in database
+    current_message_id = 0    
+    # Only take in the hash part for [recent] messages
+    last_25_messages = single_thread[ 'comments' ][ 'data' ]
+    last_25_messages.each do |message_hash|
+      # All the numbers before the underscore are just the thread id the message is in
+      current_message_id = message_hash[ 'id' ].sub( /^\d+_/, '' )
+      
+      # FB bumps each new message id in a thread up by one.
+      # If last message id from db is greater (happened after the current message you're looking at), skip it
+      if @fb_thread_from_database.last_message_id.to_i >= current_message_id.to_i
+        next
+      end
+      
+      # Get who sent the message
+      sender = message_hash[ 'from' ][ 'id' ]
+      sender = FbMember.find_by_fb_id( sender )
+      
+      message = message_hash[ 'message' ]
+      
+      if message.start_with? '*'
+        next
+      end
+      
+      message_from_facebook_to_jaconda( @fb_thread_from_database, sender.name, message )
+      thread_sent_messages_count += 1
+    end
+      
+    # Update the database with the last message id that was pushed for the thread
+    if current_message_id != @fb_thread_from_database.last_message_id
+      @fb_thread_from_database.update_column( 'last_message_id', current_message_id )
+    end
+    "Done with #{@fb_thread_from_database.nickname} and sent #{thread_sent_messages_count} messages"
+    total_sent_messages_count += thread_sent_messages_count
+  end
+  "Sent #{total_sent_messages_count} messages"
+end
+
 
 get '/api/4sq/push/checkins' do
   require 'foursquare2'
@@ -180,14 +271,23 @@ helpers do
     Net::HTTP.post_form( URI.parse( http_endpoint ), params )
   end
   
+  def message_from_facebook_to_jaconda( fb_thread_object, sender, message )
+    require 'jaconda'
+    Jaconda::Notification.authenticate( :subdomain => fb_thread_object.nickname,
+                                       :room_id => fb_thread_object.nickname,
+                                       :room_token => fb_thread_object.chat_room_api_token )
+
+    Jaconda::Notification.notify( :text => message,
+                                 :sender_name => sender )
+  end
+  
   def post_message_to_facebook_thread( send_to_facebook_content, thread_id )
     require 'mechanize'
     @agent = Mechanize.new
-  
     # Not sure how to have Mechanize just take in cookie information from string without this implementation
     # Pulling Mechanize's cookie info from db, dumping it into a file, and then loading said file into Mechanize
     cookie_location = './tmp/fb_cookie.yml'
-    fb_cookie = FbMember.find_by_fb_user( ENV[ 'fb_user'] ).fb_cookie
+    fb_cookie = FbMember.find_by_fb_user( ENV[ 'fb_user' ] ).fb_cookie
     if !fb_cookie.nil? && !fb_cookie.empty?
       File.open( cookie_location, 'w' ) do | file |
         file.puts fb_cookie
@@ -199,7 +299,7 @@ helpers do
   
     # Check to see if url has redirected to login page. If so, then it means not logged in.
     current_url = facebook_site.uri.to_s
-    current_path = URI.parse( current_url ).path  
+    current_path = URI.parse( current_url ).path
     # If cookie doesn't have you signed in, manually log in and get fresh cookie
     if !current_path.include? 'messages'
       facebook_site = login_and_save_cookie( facebook_site )

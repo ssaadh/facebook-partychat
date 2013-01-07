@@ -52,6 +52,8 @@ GEM
       multi_xml
     httpauth (0.2.0)
     i18n (0.6.1)
+    jaconda (2.0.1)
+      activeresource (>= 2.3.5)
     jwt (0.1.5)
       multi_json (>= 1.0)
     koala (1.6.0)
@@ -120,6 +122,7 @@ PLATFORMS
 DEPENDENCIES
   bitly
   foursquare2
+  jaconda
   koala
   mechanize
   newrelic_rpm
