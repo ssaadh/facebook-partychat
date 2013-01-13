@@ -20,6 +20,7 @@ gem 'newrelic_rpm'#, '~> 3.5.0.1'
 # overall app
 gem 'sinatra'#, '~> 1.3.3'
 gem 'sinatra-activerecord'#, '~> 1.1.1'
+gem 'squeel'#, '~> 1.0.14'
 
 # domain-specific
 gem 'koala'#, '~> 1.6.0'

@@ -2,6 +2,7 @@ require 'sinatra'
 set :protection, except: :ip_spoofing
 
 require 'sinatra/activerecord'
+require 'squeel'
 require_relative 'config/environments'
 require_relative 'models'
 
@@ -28,7 +29,7 @@ get '/api/jim/push/fb/threads' do
   require 'net/http'
   require 'uri'
   
-  threads = FbThread.all( :conditions => "chat_room_api_token <> '' OR chat_room_api_token IS NOT NULL" )
+  threads = FbThread.where{ chat_room_api_token.not_eq( '' ) & chat_room_api_token.not_eq( nil ) }
   threads.each do |single_thread|
     Net::HTTP.get( URI.parse( "#{ENV[ 'root_url' ]}/api/jim/push/fb/#{single_thread.nickname}" ) )
   end
@@ -180,7 +181,7 @@ get '/api/fb/push/jim/threads' do
   require 'net/http'
   require 'uri'
   
-  threads = FbThread.all( :conditions => "chat_room_api_token <> '' OR chat_room_api_token IS NOT NULL" )
+  threads = FbThread.where{ chat_room_api_token.not_eq( '' ) & chat_room_api_token.not_eq( nil ) }
   threads.each do |single_thread|
     Net::HTTP.get( URI.parse( "#{ENV[ 'root_url' ]}/api/fb/push/jim/#{single_thread.nickname}" ) )
   end
