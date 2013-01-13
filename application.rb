@@ -24,14 +24,25 @@ post '/api/fb/pull/:thread' do
   post_message_to_facebook_thread( send_to_facebook_content, thread_id )
 end
 
+get '/api/jim/push/fb/threads' do
+  require 'net/http'
+  require 'uri'
+  
+  threads = FbThread.all( :conditions => "chat_room_api_token <> '' OR chat_room_api_token IS NOT NULL" )
+  threads.each do |single_thread|
+    Net::HTTP.get( URI.parse( "#{ENV[ 'root_url' ]}/api/jim/push/fb/#{single_thread.nickname}" ) )
+  end
+  "Done"
+end
+
 get '/api/jim/push/fb/:thread' do
   thread_nickname = params[ :thread ]
-  @fb_thread_from_database = FbThread.find_by_nickname( thread_nickname )  
-  thread_api_key = @fb_thread_from_database.chat_room_api_key
+  @fb_thread_from_database = FbThread.find_by_nickname( thread_nickname )
+  chat_member_api_token = @fb_thread_from_database.chat_member_api_token
   
-  require 'jaconda'  
+  require 'jaconda'
   Jaconda::API.authenticate( :subdomain => thread_nickname,
-                            :token => thread_api_key )
+                            :token => chat_member_api_token )
   room = Jaconda::API::Room.find thread_nickname
   
   current_message_id = 0
@@ -55,7 +66,7 @@ get '/api/jim/push/fb/:thread' do
   
   if current_message_id != @fb_thread_from_database.last_chat_room_message_id
     @fb_thread_from_database.update_column( 'last_chat_room_message_id', current_message_id )
-  end  
+  end
 end
 
 
@@ -110,7 +121,7 @@ get '/api/fb/push/partychat/threads' do
   "Sent #{total_sent_messages_count} messages"
 end
 
-get '/api/fb/push/jim/threads' do
+get '/api/fb/push/jim/threadsOLD' do
   require 'koala'
   me = Koala::Facebook::API.new( ENV[ 'fb_api' ] )
   
@@ -119,16 +130,16 @@ get '/api/fb/push/jim/threads' do
   recent_time = Time.now.to_i - 1000
   recent_time = recent_time.to_s
   threads = me.get_object( "me/inbox?&since=#{recent_time}" )
-
+  
   threads.each do |single_thread|
     # Skip the current thread if it isn't the database - meaning it doesn't need pushing
     @fb_thread_from_database = FbThread.find_by_fb_api_id( single_thread[ 'id' ] )
     next if @fb_thread_from_database.nil?
     #next if @fb_thread_from_database.ignore == true
-     
+    
     thread_sent_messages_count = 0
     # Needs to work outside the loop below so the final one can update the latest message id column in database
-    current_message_id = 0    
+    current_message_id = 0
     # Only take in the hash part for [recent] messages
     last_25_messages = single_thread[ 'comments' ][ 'data' ]
     last_25_messages.each do |message_hash|
@@ -154,7 +165,7 @@ get '/api/fb/push/jim/threads' do
       message_from_facebook_to_jaconda( @fb_thread_from_database, sender.name, message )
       thread_sent_messages_count += 1
     end
-      
+    
     # Update the database with the last message id that was pushed for the thread
     if current_message_id != @fb_thread_from_database.last_message_id
       @fb_thread_from_database.update_column( 'last_message_id', current_message_id )
@@ -163,6 +174,74 @@ get '/api/fb/push/jim/threads' do
     total_sent_messages_count += thread_sent_messages_count
   end
   "Sent #{total_sent_messages_count} messages"
+end
+
+get '/api/fb/push/jim/threads' do
+  require 'net/http'
+  require 'uri'
+  
+  threads = FbThread.all( :conditions => "chat_room_api_token <> '' OR chat_room_api_token IS NOT NULL" )
+  threads.each do |single_thread|
+    Net::HTTP.get( URI.parse( "#{ENV[ 'root_url' ]}/api/fb/push/jim/#{single_thread.nickname}" ) )
+  end
+end
+
+get '/api/fb/push/jim/:thread' do
+  require 'koala'
+  me = Koala::Facebook::API.new ENV[ 'fb_api' ]
+  
+  @fb_thread_from_database = FbThread.find_by_nickname( params[ :thread ] )
+  
+  # Skip the current thread if it isn't the database - meaning it doesn't need pushing
+  return if @fb_thread_from_database.nil?
+  #next if @fb_thread_from_database.ignore == true
+  
+  recent_time = Time.now.to_i - 1000
+  recent_time = recent_time.to_s
+  begin
+    single_thread = me.get_object "#{@fb_thread_from_database.fb_api_id}?&since=#{recent_time}"
+  rescue# GraphMethodException
+    'No new messages'
+    return
+  #rescue
+    #'Other retrieving error'
+    #return
+  end
+  
+  thread_sent_messages_count = 0
+  # Needs to work outside the loop below so the final one can update the latest message id column in database
+  current_message_id = 0
+  # Only take in the hash part for [recent] messages
+  last_25_messages = single_thread[ 'comments' ][ 'data' ]
+  last_25_messages.each do |message_hash|
+    # All the numbers before the underscore are just the thread id the message is in
+    current_message_id = message_hash[ 'id' ].sub( /^\d+_/, '' )
+    
+    # FB bumps each new message id in a thread up by one.
+    # If last message id from db is greater (happened after the current message you're looking at), skip it
+    if @fb_thread_from_database.last_message_id.to_i >= current_message_id.to_i
+      next
+    end
+    
+    # Get who sent the message
+    sender = message_hash[ 'from' ][ 'id' ]
+    sender = FbMember.find_by_fb_id( sender )
+    
+    message = message_hash[ 'message' ]
+    
+    if message.start_with? '*'
+      next
+    end 
+    
+    message_from_facebook_to_jaconda( @fb_thread_from_database, sender.name, message )
+    thread_sent_messages_count += 1
+  end
+  
+  # Update the database with the last message id that was pushed for the thread
+  if current_message_id != @fb_thread_from_database.last_message_id
+    @fb_thread_from_database.update_column( 'last_message_id', current_message_id )
+  end
+  "Done with #{@fb_thread_from_database.nickname} and sent #{thread_sent_messages_count} messages"
 end
 
 
@@ -235,6 +314,10 @@ end
 # Eh
 get '/' do
   'Nup'
+end
+
+get '/sure/?' do
+  'Yup'
 end
 
 
